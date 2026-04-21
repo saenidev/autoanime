@@ -87,7 +87,8 @@ poll_interval_minutes = 30
         config_path = tmp_path / "config.toml"
         generate_default_config(path=config_path)
         config = load_config(path=config_path)
-        assert config.defaults.max_concurrent_per_show == 1
+        # 0 = unlimited (concurrent); users can set to N for strict serial
+        assert config.defaults.max_concurrent_per_show == 0
 
     def test_max_concurrent_override(self, tmp_path):
         config_path = tmp_path / "config.toml"

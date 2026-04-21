@@ -8,46 +8,76 @@ Auto-download anime episodes from Nyaa via qBittorrent when they air.
 uv tool install .
 ```
 
+Puts `autoanime` on your `PATH`.
+
 ## Setup
 
-```bash
-# Generate default config
-autoanime
+**1. Generate the config file:**
 
-# Edit ~/.config/autoanime/config.toml with your qBittorrent Web UI settings
+```bash
+autoanime
 ```
 
-Requires qBittorrent running with Web UI enabled (Preferences > Web UI).
+Creates `~/.config/autoanime/config.toml` with sensible defaults.
+
+**2. Enable qBittorrent's Web UI** (Preferences → Web UI):
+
+- Tick "Web User Interface (Remote control)"
+- Port: `8080`
+- Username / password: `admin` / `adminadmin` (or set your own in both qBittorrent *and* `config.toml`)
+- Tick "Bypass authentication for clients on localhost" for hassle-free local use
+
+**3. Install the scheduled check:**
+
+```bash
+autoanime schedule install
+```
+
+Installs a `launchd` plist that runs `autoanime check` on the interval set by `poll_interval_minutes` in config.toml (default 60 min).
 
 ## Usage
 
 ```bash
-# Search AniList
+# Search AniList (read-only)
 autoanime search "Frieren"
 
-# Add a show
+# Add a show to the watchlist
 autoanime add "Frieren"
-autoanime add "One Piece" --from 1120     # skip episodes 1-1119
-autoanime add "Dandadan" --group Erai-raws --quality 720p
+autoanime add "One Piece" --from 1120         # skip eps 1-1119
+autoanime add "Dandadan" --group Erai-raws    # override release group
+autoanime add "Show" --quality 720p           # override default quality
+autoanime add "Show" --dir ~/Anime/Show       # custom save path
 
-# See what's tracked
+# View tracked shows (air day shown in your local timezone)
 autoanime list
 
-# Check what's available on Nyaa
+# See what's new on Nyaa
 autoanime status
 
 # Download new episodes
-autoanime check              # sends magnets to qBittorrent
+autoanime check              # live: sends magnets to qBittorrent
 autoanime check --dry-run    # preview without downloading
-autoanime check --verbose    # detailed matching output
+autoanime check --verbose    # show matching decisions
 
 # Remove a show
 autoanime remove "Frieren"
 
-# Auto-run every 15 minutes via launchd
+# launchd scheduling
 autoanime schedule install
 autoanime schedule uninstall
 ```
+
+## How batch downloads behave
+
+When several new episodes drop at once (e.g. you added a show mid-season), autoanime:
+
+1. Adds all new episodes to qBittorrent concurrently, **earliest first**
+2. Calls qBittorrent's `topPrio` API to set queue priority so ep 1 is topmost
+3. Enables `firstLastPiecePrio` on each torrent so the first and last pieces of each file download first (useful if your player supports partial playback)
+
+**Honest caveat:** qBittorrent doesn't do bandwidth prioritization *between* active torrents — with N parallel downloads splitting your link, they finish at roughly the same time regardless of queue position. Queue priority mainly matters when qBittorrent's queueing system is enabled (Preferences → BitTorrent → "Torrent queueing") with a limited `max_active_downloads`.
+
+If you want strict serial (ep 1 finishes before ep 2 starts), set `max_concurrent_per_show = 1` in config.toml. Episodes beyond the limit are added to qBittorrent paused and tagged `autoanime-<show-slug>`; subsequent `check` runs resume the earliest paused episode when a slot frees up.
 
 ## Config
 
@@ -64,17 +94,30 @@ password = "adminadmin"
 quality = "1080p"
 group_priority = ["SubsPlease", "Erai-raws", "Judas"]
 max_torrent_size_mb = 4000
+max_concurrent_per_show = 0    # 0 = unlimited concurrent; set N for strict serial
 
 [nyaa]
 mirrors = ["nyaa.si", "nyaa.land"]
-category = "1_2"
-filter = 2
-poll_interval_minutes = 15
+category = "1_2"             # Anime - English-translated
+filter = 2                    # Trusted uploaders only
+poll_interval_minutes = 60
 ```
+
+After editing `poll_interval_minutes`, re-run `autoanime schedule install` to apply.
 
 ## How it works
 
-1. You add shows via `autoanime add` — resolves titles against AniList
-2. `autoanime check` polls Nyaa RSS feeds filtered by your preferred group + quality
-3. New episodes are sent to qBittorrent as magnet links via its Web API
-4. Episode tracking prevents duplicates; finished shows auto-archive
+1. `autoanime add` resolves titles via AniList (no auth required).
+2. `autoanime check` polls the configured Nyaa mirrors via RSS, filtered by group priority + quality + trusted-uploader filter.
+3. Title parsing extracts episode number, group, quality, batch flag, and version; ranking picks the best release per episode.
+4. Magnets are sent to qBittorrent through its Web API, tagged for per-show state tracking.
+5. Finished shows auto-archive once all episodes are downloaded.
+
+## Storage
+
+| Path | Purpose |
+|---|---|
+| `~/.config/autoanime/config.toml` | User config |
+| `~/.config/autoanime/state.json` | Watchlist + per-show episode sets |
+| `~/.config/autoanime/autoanime.log` | launchd stdout/stderr |
+| `~/Library/LaunchAgents/com.autoanime.check.plist` | Schedule |

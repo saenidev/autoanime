@@ -282,8 +282,8 @@ class TestCheckCommand:
         assert result.exit_code == 0
         assert "nothing new" in result.output
 
-    def test_check_batch_queues_overflow(self, tmp_path):
-        """With max_concurrent=1, a batch of 3 new eps should queue eps 2-3 as paused."""
+    def test_check_batch_concurrent_by_default(self, tmp_path):
+        """Default behavior: all new eps download concurrently, in episode order."""
         config_path = tmp_path / "config.toml"
         config_path.write_text(DEFAULT_CONFIG)
 
@@ -322,14 +322,83 @@ class TestCheckCommand:
         ):
             result = runner.invoke(main, ["check", "--dry-run"])
 
-        # Ep 1 should be the one downloaded (active), eps 2-3 queued
+        # All three download concurrently, listed in episode order (earliest first)
         lines = result.output.splitlines()
-        dl_line = next(line for line in lines if "Would download" in line)
-        assert "Frieren - 01" in dl_line
+        dl_lines = [line for line in lines if "Would download" in line]
+        assert len(dl_lines) == 3
         queue_lines = [line for line in lines if "Would queue" in line]
+        assert queue_lines == []
+        # Earliest first in the output
+        assert "Frieren - 01" in dl_lines[0]
+        assert "Frieren - 02" in dl_lines[1]
+        assert "Frieren - 03" in dl_lines[2]
+
+    def test_check_batch_serial_when_configured(self, tmp_path):
+        """Opt-in: max_concurrent_per_show = 1 serializes to one at a time."""
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            """\
+[qbittorrent]
+host = "localhost"
+port = 8080
+username = "admin"
+password = "adminadmin"
+
+[defaults]
+quality = "1080p"
+group_priority = ["SubsPlease"]
+max_torrent_size_mb = 4000
+max_concurrent_per_show = 1
+
+[nyaa]
+mirrors = ["nyaa.si"]
+category = "1_2"
+filter = 2
+poll_interval_minutes = 60
+"""
+        )
+
+        shows = {
+            "frieren": Show(
+                anilist_id=1,
+                title="Frieren",
+                search_query="SubsPlease Frieren 1080p",
+                downloaded_episodes=set(),
+            )
+        }
+
+        def _mk(ep):
+            return {
+                "title": f"[SubsPlease] Frieren - {ep:02d} (1080p) [H].mkv",
+                "info_hash": f"hash{ep}",
+                "magnet": f"magnet:?xt=urn:btih:hash{ep}",
+                "size_bytes": 500_000_000,
+                "seeders": 100,
+                "group": "SubsPlease",
+                "episode": ep,
+                "quality": "1080p",
+                "is_batch": False,
+                "version": 1,
+            }
+
+        runner = CliRunner()
+        with (
+            patch(
+                "autoanime.cli.load_config",
+                return_value=__import__("autoanime.config", fromlist=["load_config"]).load_config(config_path),
+            ),
+            patch("autoanime.cli.load_state", return_value=shows),
+            patch("autoanime.cli.save_state"),
+            patch("autoanime.cli.fetch_rss", return_value=[_mk(1), _mk(2), _mk(3)]),
+        ):
+            result = runner.invoke(main, ["check", "--dry-run"])
+
+        lines = result.output.splitlines()
+        dl_lines = [line for line in lines if "Would download" in line]
+        queue_lines = [line for line in lines if "Would queue" in line]
+        assert len(dl_lines) == 1
+        assert "Frieren - 01" in dl_lines[0]
         assert len(queue_lines) == 2
-        assert any("Frieren - 02" in line for line in queue_lines)
-        assert any("Frieren - 03" in line for line in queue_lines)
 
     def test_check_no_shows(self, tmp_path):
         config_path = tmp_path / "config.toml"

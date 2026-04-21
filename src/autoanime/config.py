@@ -19,7 +19,9 @@ password = "adminadmin"
 quality = "1080p"
 group_priority = ["SubsPlease", "Erai-raws", "Judas"]
 max_torrent_size_mb = 4000
-max_concurrent_per_show = 1
+# 0 = unlimited (all new episodes download concurrently with priority hint)
+# Set to a positive N to pause episodes beyond the Nth per show.
+max_concurrent_per_show = 0
 
 [nyaa]
 mirrors = ["nyaa.si", "nyaa.land"]
@@ -44,7 +46,9 @@ class DefaultsConfig:
         default_factory=lambda: ["SubsPlease", "Erai-raws", "Judas"]
     )
     max_torrent_size_mb: int = 4000
-    max_concurrent_per_show: int = 1
+    # 0 or negative = unlimited (default). Set to N to actually pause downloads
+    # beyond the Nth per show (useful if you want strict serial).
+    max_concurrent_per_show: int = 0
 
 
 @dataclass

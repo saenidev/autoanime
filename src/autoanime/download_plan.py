@@ -42,13 +42,14 @@ def plan_downloads(
 ) -> DownloadPlan:
     """Decide what to do given current state and new episodes.
 
-    - New episodes are processed in episode-number order.
-    - Paused torrents (from earlier runs) are resumed earliest-episode first if
-      there are available slots.
-    - Anything beyond max_concurrent is added paused so it can be resumed later.
+    Results are ordered by episode number (earliest first) in every list so the
+    caller can apply queue priority / first-piece priority in natural reading
+    order.
+
+    max_concurrent <= 0 means unlimited: every new episode goes active, and
+    every paused episode gets resumed.
     """
-    if max_concurrent < 1:
-        max_concurrent = 1
+    unlimited = max_concurrent <= 0
 
     active_count = sum(
         1 for t in existing_torrents if t.get("state") in ACTIVE_STATES
@@ -56,15 +57,19 @@ def plan_downloads(
     paused = [t for t in existing_torrents if t.get("state") in PAUSED_STATES]
     paused_sorted = sorted(paused, key=lambda t: _ep_num_from_name(t.get("name", "")))
 
-    slots = max(0, max_concurrent - active_count)
-    to_resume = paused_sorted[:slots]
-    effective_active = active_count + len(to_resume)
+    if unlimited:
+        to_resume = paused_sorted
+        effective_active = active_count + len(to_resume)
+    else:
+        slots = max(0, max_concurrent - active_count)
+        to_resume = paused_sorted[:slots]
+        effective_active = active_count + len(to_resume)
 
     new_sorted = sorted(new_episodes, key=lambda e: e.get("episode") or 0)
     to_add_active: list[dict] = []
     to_add_paused: list[dict] = []
     for entry in new_sorted:
-        if effective_active < max_concurrent:
+        if unlimited or effective_active < max_concurrent:
             to_add_active.append(entry)
             effective_active += 1
         else:

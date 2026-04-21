@@ -50,6 +50,7 @@ class QBittorrentClient:
         save_path: str | None = None,
         paused: bool = False,
         tags: str | None = None,
+        first_last_piece_prio: bool = True,
     ) -> bool:
         self._ensure_logged_in()
         data: dict[str, str] = {"urls": magnet}
@@ -60,8 +61,29 @@ class QBittorrentClient:
             data["paused"] = "true"
         if tags:
             data["tags"] = tags
+        if first_last_piece_prio:
+            data["firstLastPiecePrio"] = "true"
         try:
             resp = self.client.post("/api/v2/torrents/add", data=data)
+            return resp.status_code == 200
+        except httpx.HTTPError:
+            return False
+
+    def set_top_priority(self, hashes: list[str]) -> bool:
+        """Move torrents to the top of the qBittorrent queue in the given order.
+
+        Only has bandwidth impact if qBittorrent's queueing system is enabled
+        (Preferences → BitTorrent → "Torrent queueing"). With queueing off
+        this is cosmetic (affects UI sort order only).
+        """
+        self._ensure_logged_in()
+        if not hashes:
+            return True
+        try:
+            resp = self.client.post(
+                "/api/v2/torrents/topPrio",
+                data={"hashes": "|".join(hashes)},
+            )
             return resp.status_code == 200
         except httpx.HTTPError:
             return False

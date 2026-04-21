@@ -92,9 +92,27 @@ class TestPlanDownloads:
         assert [e["episode"] for e in plan.to_add_active] == [1]
         assert [e["episode"] for e in plan.to_add_paused] == [2, 3, 5]
 
-    def test_zero_max_concurrent_treated_as_one(self):
-        plan = plan_downloads([_entry(1)], existing_torrents=[], max_concurrent=0)
-        assert [e["episode"] for e in plan.to_add_active] == [1]
+    def test_zero_max_concurrent_means_unlimited(self):
+        """0 or negative max_concurrent = concurrent mode, nothing paused."""
+        new = [_entry(1), _entry(2), _entry(3), _entry(4)]
+        plan = plan_downloads(new, existing_torrents=[], max_concurrent=0)
+        assert [e["episode"] for e in plan.to_add_active] == [1, 2, 3, 4]
+        assert plan.to_add_paused == []
+
+    def test_unlimited_resumes_all_paused(self):
+        existing = [
+            _torrent("[SubsPlease] Show - 03 (1080p) [C].mkv", "pausedDL", "C"),
+            _torrent("[SubsPlease] Show - 02 (1080p) [B].mkv", "stoppedDL", "B"),
+        ]
+        plan = plan_downloads(new_episodes=[], existing_torrents=existing, max_concurrent=0)
+        # Both resumed, ordered earliest first
+        assert plan.to_resume_hashes == ["B", "C"]
+
+    def test_negative_max_concurrent_means_unlimited(self):
+        new = [_entry(1), _entry(2)]
+        plan = plan_downloads(new, existing_torrents=[], max_concurrent=-1)
+        assert [e["episode"] for e in plan.to_add_active] == [1, 2]
+        assert plan.to_add_paused == []
 
     def test_empty_everything(self):
         plan = plan_downloads([], existing_torrents=[], max_concurrent=1)

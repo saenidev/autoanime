@@ -390,18 +390,20 @@ def check(dry_run: bool, verbose: bool) -> None:
                 )
             qbt.start_torrents(plan.to_resume_hashes)
 
+        active_hashes_added: list[str] = []
+
         def _record(entry: dict, paused: bool) -> None:
             ep = entry["episode"]
             show.downloaded_episodes.add(ep)
             if not show.nyaa_fingerprint:
                 show.nyaa_fingerprint = entry["title"]
-            label = "queued" if paused else "downloading"
             downloaded.append(f"{show.title} {ep}" + (" (queued)" if paused else ""))
             if verbose or dry_run:
                 prefix = "[DRY RUN] Would " if dry_run else "  "
                 action = "queue" if paused else "download"
                 click.echo(f"{prefix}{action}: {entry['title']}")
 
+        # Add active torrents in episode order so ep 1 is registered first
         for entry in plan.to_add_active:
             if dry_run:
                 _record(entry, paused=False)
@@ -411,11 +413,19 @@ def check(dry_run: bool, verbose: bool) -> None:
                 save_path=show.download_dir,
                 paused=False,
                 tags=f"autoanime,{show_tag}",
+                first_last_piece_prio=True,
             )
             if success:
                 _record(entry, paused=False)
+                if entry.get("info_hash"):
+                    active_hashes_added.append(entry["info_hash"].lower())
             elif verbose:
                 click.echo(f"  Failed to add torrent for ep {entry['episode']}")
+
+        # Give qBittorrent a queue-priority signal: earliest episode first.
+        # Effect on bandwidth requires queueing enabled in qBittorrent preferences.
+        if active_hashes_added and not dry_run:
+            qbt.set_top_priority(active_hashes_added)
 
         for entry in plan.to_add_paused:
             if dry_run:
@@ -426,6 +436,7 @@ def check(dry_run: bool, verbose: bool) -> None:
                 save_path=show.download_dir,
                 paused=True,
                 tags=f"autoanime,{show_tag}",
+                first_last_piece_prio=True,
             )
             if success:
                 _record(entry, paused=True)

@@ -1,26 +1,23 @@
-# CLAUDE.md
+# autoanime — contributor notes
 
-Guidance for Claude agents working on this repo.
-
-## Project
-
-`autoanime` — Python CLI that auto-downloads anime from Nyaa via qBittorrent's Web API. Designed to run every 15 min via macOS `launchd`.
+Python CLI that auto-downloads anime from Nyaa via qBittorrent's Web API.
 
 ## Layout
 
 ```
 src/autoanime/
-  cli.py          # Click commands (entry point: autoanime.cli:main)
-  config.py       # TOML config → ~/.config/autoanime/config.toml
-  state.py        # JSON state → ~/.config/autoanime/state.json, Show dataclass, atomic writes
-  anilist.py      # GraphQL search (no auth required)
-  nyaa.py         # RSS fetch, title parsing, match ranking  ← CRITICAL PATH
-  qbittorrent.py  # Web API client
-  scheduler.py    # launchd plist generation
-tests/            # 75 pytest tests, no HTTP mocking
+  cli.py            # Click commands (entry: autoanime.cli:main)
+  config.py         # TOML config → ~/.config/autoanime/config.toml
+  state.py          # JSON state → ~/.config/autoanime/state.json
+  anilist.py        # GraphQL search client (no auth)
+  nyaa.py           # RSS fetch + title parsing + ranking  ← critical path
+  qbittorrent.py    # Web API client (v4/v5 compatible)
+  download_plan.py  # Pure planner: which torrents active vs paused
+  scheduler.py      # launchd plist generation
+tests/              # 102 pytest tests, no HTTP mocking
 ```
 
-AniList and Nyaa clients deliberately separate parsing from HTTP so the parsing can be tested with fixture data. Keep this separation when extending them.
+Client modules separate HTTP from parsing so parsing is tested with fixture data only. Keep this separation when extending them.
 
 ## Testing
 
@@ -29,51 +26,59 @@ uv sync
 uv run pytest tests/ -v
 ```
 
-All tests must pass before committing. Title parsing is the fragile part — any change to `nyaa.parse_title` needs test coverage for every real release-title format it touches. See `tests/test_nyaa.py::TestParseTitle`.
+Tests must pass before committing. Title parsing (`nyaa.parse_title`) is the fragile spot — any edit needs test coverage for every real release-title format it touches. See `tests/test_nyaa.py::TestParseTitle`.
 
 ## Dependencies
 
-Keep minimal: `httpx`, `click`, `feedparser`. Do not add pandas, sqlite, async frameworks, or logging libraries. Stdlib `tomllib` handles TOML reads.
+Keep minimal: `httpx`, `click`, `feedparser`. Don't add pandas, sqlite, async frameworks, or logging libraries. Stdlib `tomllib` handles TOML reads.
 
-## Installing locally
+## Local install
 
 ```bash
-uv pip install -e .     # editable install for development
-uv tool install .       # global install, puts `autoanime` on PATH
+# editable install for dev work
+uv pip install -e .
+
+# global CLI — clean cache first to avoid stale wheels from previous source state
+uv cache clean autoanime
+uv tool install . --force
 ```
 
-## Commits
+## Commit conventions
 
-**Never add Claude attribution to commits.** No `Generated with Claude Code`, no `Co-Authored-By: Claude`, no mention of AI/Claude in commit messages. The author is `saenidev`.
+- Imperative subject lines: `fix list column alignment`, not `Fixed some bugs`
+- Body explains why, not what
+- **No AI/assistant attribution in commits.** The author is always the repo owner.
+- No emoji in commit messages or source code unless explicitly requested
+- No `Generated with ...` / `Co-Authored-By: ...` trailers
 
-Write conventional-style subject lines (short, imperative): `fix list command column alignment`, not `Fixed some bugs`.
+## Commit and push — required after every change
 
-## Commit and push workflow
+Every task ends with a commit and push. Don't leave the repo half-done.
 
 ```bash
 # 1. Run tests
 uv run pytest tests/ -v
 
-# 2. Stage specific files (avoid `git add -A` / `git add .`)
-git add src/autoanime/nyaa.py tests/test_nyaa.py
+# 2. Stage specific files (avoid `git add -A` — it picks up stray files)
+git add src/autoanime/<file>.py tests/test_<file>.py
 
-# 3. Review what's staged
+# 3. Review the staged diff
 git diff --cached
 
-# 4. Commit with HEREDOC for clean multi-line formatting
+# 4. Commit with HEREDOC for clean formatting
 git commit -m "$(cat <<'EOF'
 short imperative subject
 
-Optional body explaining why, not what.
+Optional body explaining the why.
 EOF
 )"
 
-# 5. Push
+# 5. Push to main
 git push
 ```
 
-Before pushing:
-- Tests green
-- No secrets (no `.env`, no credentials) in staged diff
-- No Claude attribution in message
-- No emoji in code or commit messages unless explicitly requested
+Before pushing, verify:
+- Tests green (`101+ passed`)
+- No secrets in the staged diff (no `.env`, no credentials)
+- Commit message has no assistant attribution
+- Commit is authored by the repo owner (check with `git log -1 --format=full`)

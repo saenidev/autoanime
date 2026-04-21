@@ -82,3 +82,26 @@ poll_interval_minutes = 30
         config = load_config(path=config_path)
         assert config.qbittorrent.host == "localhost"
         assert config.defaults.quality == "1080p"
+
+    def test_ignores_unknown_keys(self, tmp_path):
+        """Forward compat: config with extra keys from a future version should still load."""
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            """\
+[qbittorrent]
+host = "localhost"
+port = 8080
+username = "admin"
+password = "adminadmin"
+future_field = "unknown"
+
+[defaults]
+quality = "1080p"
+group_priority = ["SubsPlease"]
+max_torrent_size_mb = 4000
+new_setting = true
+"""
+        )
+        config = load_config(path=config_path)
+        assert config.qbittorrent.host == "localhost"
+        assert config.defaults.quality == "1080p"

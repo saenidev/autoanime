@@ -101,6 +101,26 @@ class TestSaveAndLoad:
         assert s.nyaa_fingerprint == "[SubsPlease] Test - {ep}"
         assert s.archived is False
 
+    def test_ignores_unknown_fields(self, tmp_path):
+        """Forward compat: state from a future version with extra keys should still load."""
+        state_path = tmp_path / "state.json"
+        state_path.write_text(
+            """{
+  "shows": {
+    "test": {
+      "anilist_id": 1,
+      "title": "Test",
+      "downloaded_episodes": [1, 2],
+      "future_field": "something new",
+      "another_unknown": {"nested": true}
+    }
+  }
+}"""
+        )
+        shows = load_state(path=state_path)
+        assert "test" in shows
+        assert shows["test"].downloaded_episodes == {1, 2}
+
     def test_multiple_shows(self, tmp_path):
         state_path = tmp_path / "state.json"
         shows = {

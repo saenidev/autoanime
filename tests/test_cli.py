@@ -137,6 +137,34 @@ class TestListCommand:
         assert "Sousou no Frieren" in result.output
         assert "3/28" in result.output
 
+    def test_list_columns_aligned(self):
+        """Regression: episode counts of different digit widths must not break alignment."""
+        shows = {
+            "a": Show(
+                anilist_id=1,
+                title="Short Show",
+                total_episodes=12,
+                airing_status="FINISHED",
+                air_day="Fri",
+                downloaded_episodes={1, 2},
+            ),
+            "b": Show(
+                anilist_id=2,
+                title="Long Show",
+                total_episodes=None,
+                airing_status="RELEASING",
+                air_day="Sun",
+                downloaded_episodes=set(range(1, 1120)),
+            ),
+        }
+        runner = CliRunner()
+        with patch("autoanime.cli.load_state", return_value=shows):
+            result = runner.invoke(main, ["list"])
+        lines = [line for line in result.output.splitlines() if "FINISHED" in line or "RELEASING" in line]
+        assert len(lines) == 2
+        status_cols = [line.index("FINISHED") if "FINISHED" in line else line.index("RELEASING") for line in lines]
+        assert status_cols[0] == status_cols[1], f"Status column misaligned: {status_cols}"
+
     def test_list_skips_archived(self):
         shows = {
             "frieren": Show(
@@ -170,6 +198,21 @@ class TestRemoveCommand:
         with patch("autoanime.cli.load_state", return_value={}):
             result = runner.invoke(main, ["remove", "nonexistent"])
         assert "No tracked show matching" in result.output
+
+    def test_remove_empty_string_guarded(self):
+        """Regression: `autoanime remove ""` must not match all shows."""
+        shows = {
+            "a": Show(anilist_id=1, title="Show A"),
+            "b": Show(anilist_id=2, title="Show B"),
+        }
+        runner = CliRunner()
+        with (
+            patch("autoanime.cli.load_state", return_value=shows),
+            patch("autoanime.cli.save_state") as mock_save,
+        ):
+            result = runner.invoke(main, ["remove", ""])
+        assert "Please provide" in result.output
+        mock_save.assert_not_called()
 
 
 class TestCheckCommand:

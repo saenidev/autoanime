@@ -148,11 +148,15 @@ def add(
 @click.argument("title")
 def remove(title: str) -> None:
     """Remove an anime from your watchlist."""
+    if not title.strip():
+        click.echo("Please provide a show name to remove.")
+        return
     shows = load_state()
+    needle = title.lower()
     matches = [
         (slug, show)
         for slug, show in shows.items()
-        if title.lower() in show.title.lower() or title.lower() in slug
+        if needle in show.title.lower() or needle in slug
     ]
 
     if not matches:
@@ -193,10 +197,11 @@ def list_shows() -> None:
             continue
         ep_count = len(show.downloaded_episodes)
         total = str(show.total_episodes) if show.total_episodes else "??"
+        ep_str = f"{ep_count}/{total}"
         group = show.group_override or "default"
         air_day = (show.air_day or "—")[:3]
         click.echo(
-            f"{show.title[:34]:<35} {ep_count}/{total:<10} "
+            f"{show.title[:34]:<35} {ep_str:<12} "
             f"{show.airing_status[:11]:<12} {air_day:<10} {group:<15}"
         )
 

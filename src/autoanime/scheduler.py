@@ -56,6 +56,11 @@ def install(bin_path: str | None = None) -> Path:
     PLIST_DIR.mkdir(parents=True, exist_ok=True)
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.write_text(plist_content)
+    subprocess.run(
+        ["launchctl", "unload", str(PLIST_PATH)],
+        check=False,
+        capture_output=True,
+    )
     subprocess.run(["launchctl", "load", str(PLIST_PATH)], check=True)
     return PLIST_PATH
 

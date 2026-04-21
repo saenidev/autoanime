@@ -33,7 +33,12 @@ def parse_title(title: str) -> dict:
     quality_match = re.search(r"(2160|1080|720|480)p", title)
     quality = f"{quality_match.group(1)}p" if quality_match else None
 
-    is_batch = bool(re.search(r"\(\d+\s*[-~]\s*\d+\)", title)) or "batch" in title.lower()
+    is_batch = (
+        bool(re.search(r"\(\d+\s*[-~]\s*\d+\)", title))
+        or bool(re.search(r"\[\d+\s*[-~]\s*\d+\]", title))
+        or bool(re.search(r" - \d+\s*[-~]\s*\d+(?!\d)", title))
+        or "batch" in title.lower()
+    )
 
     version_match = re.search(r"v(\d+)", title)
     version = int(version_match.group(1)) if version_match else 1
@@ -81,7 +86,7 @@ def fetch_rss(
                 )
                 resp.raise_for_status()
                 return _parse_feed(resp.text)
-            except (httpx.HTTPError, Exception):
+            except httpx.HTTPError:
                 if attempt < retries - 1:
                     time.sleep(2**attempt)
                 continue

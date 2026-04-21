@@ -88,6 +88,19 @@ class TestParseTitle:
         r = parse_title("[Group] Show - S01E01-E12.mkv")
         assert r["is_batch"] is False
 
+    def test_batch_dash_range_without_parens(self):
+        """Regression: [Erai-raws] Dandadan - 01-12 (1080p) was parsed as ep=1."""
+        r = parse_title("[Erai-raws] Dandadan - 01-12 (1080p).mkv")
+        assert r["is_batch"] is True
+
+    def test_batch_bracket_range(self):
+        r = parse_title("[Group] Show [01-12] (1080p).mkv")
+        assert r["is_batch"] is True
+
+    def test_batch_large_episode_range(self):
+        r = parse_title("[Group] Long Show - 105-110 (1080p).mkv")
+        assert r["is_batch"] is True
+
 
 class TestParseSize:
     def test_gib(self):

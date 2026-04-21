@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
@@ -37,7 +38,8 @@ def _show_to_dict(show: Show) -> dict:
 def _show_from_dict(d: dict) -> Show:
     d = d.copy()
     d["downloaded_episodes"] = set(d.get("downloaded_episodes", []))
-    return Show(**d)
+    valid = {f.name for f in dataclasses.fields(Show)}
+    return Show(**{k: v for k, v in d.items() if k in valid})
 
 
 def load_state(path: Path | None = None) -> dict[str, Show]:

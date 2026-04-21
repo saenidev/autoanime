@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -59,6 +60,11 @@ class Config:
     nyaa: NyaaConfig = field(default_factory=NyaaConfig)
 
 
+def _only_known(cls, data: dict) -> dict:
+    valid = {f.name for f in dataclasses.fields(cls)}
+    return {k: v for k, v in data.items() if k in valid}
+
+
 def load_config(path: Path | None = None) -> Config:
     p = path or CONFIG_PATH
     if not p.exists():
@@ -70,9 +76,9 @@ def load_config(path: Path | None = None) -> Config:
         data = tomllib.load(f)
 
     return Config(
-        qbittorrent=QBittorrentConfig(**data.get("qbittorrent", {})),
-        defaults=DefaultsConfig(**data.get("defaults", {})),
-        nyaa=NyaaConfig(**data.get("nyaa", {})),
+        qbittorrent=QBittorrentConfig(**_only_known(QBittorrentConfig, data.get("qbittorrent", {}))),
+        defaults=DefaultsConfig(**_only_known(DefaultsConfig, data.get("defaults", {}))),
+        nyaa=NyaaConfig(**_only_known(NyaaConfig, data.get("nyaa", {}))),
     )
 
 

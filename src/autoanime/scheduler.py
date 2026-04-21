@@ -23,9 +23,24 @@ def _find_autoanime_bin() -> str:
     )
 
 
-def generate_plist(bin_path: str | None = None) -> str:
+def _interval_from_config() -> int:
+    from autoanime.config import load_config
+
+    try:
+        config = load_config()
+        return max(60, config.nyaa.poll_interval_minutes * 60)
+    except FileNotFoundError:
+        return 900
+
+
+def generate_plist(
+    bin_path: str | None = None,
+    interval_seconds: int | None = None,
+) -> str:
     if not bin_path:
         bin_path = _find_autoanime_bin()
+    if interval_seconds is None:
+        interval_seconds = _interval_from_config()
     return f"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" \
@@ -40,7 +55,7 @@ def generate_plist(bin_path: str | None = None) -> str:
         <string>check</string>
     </array>
     <key>StartInterval</key>
-    <integer>900</integer>
+    <integer>{interval_seconds}</integer>
     <key>StandardOutPath</key>
     <string>{LOG_PATH}</string>
     <key>StandardErrorPath</key>
@@ -51,8 +66,10 @@ def generate_plist(bin_path: str | None = None) -> str:
 </plist>"""
 
 
-def install(bin_path: str | None = None) -> Path:
-    plist_content = generate_plist(bin_path)
+def install(
+    bin_path: str | None = None, interval_seconds: int | None = None
+) -> Path:
+    plist_content = generate_plist(bin_path, interval_seconds)
     PLIST_DIR.mkdir(parents=True, exist_ok=True)
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.write_text(plist_content)

@@ -19,6 +19,7 @@ password = "adminadmin"
 quality = "1080p"
 group_priority = ["SubsPlease", "Erai-raws", "Judas"]
 max_torrent_size_mb = 4000
+max_concurrent_per_show = 1
 
 [nyaa]
 mirrors = ["nyaa.si", "nyaa.land"]
@@ -43,6 +44,7 @@ class DefaultsConfig:
         default_factory=lambda: ["SubsPlease", "Erai-raws", "Judas"]
     )
     max_torrent_size_mb: int = 4000
+    max_concurrent_per_show: int = 1
 
 
 @dataclass

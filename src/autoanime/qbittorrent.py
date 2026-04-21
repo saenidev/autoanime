@@ -44,24 +44,60 @@ class QBittorrentClient:
         except httpx.ConnectError:
             return False
 
-    def add_torrent(self, magnet: str, save_path: str | None = None) -> bool:
+    def add_torrent(
+        self,
+        magnet: str,
+        save_path: str | None = None,
+        paused: bool = False,
+        tags: str | None = None,
+    ) -> bool:
         self._ensure_logged_in()
         data: dict[str, str] = {"urls": magnet}
         if save_path:
             data["savepath"] = save_path
+        if paused:
+            data["stopped"] = "true"
+            data["paused"] = "true"
+        if tags:
+            data["tags"] = tags
         try:
             resp = self.client.post("/api/v2/torrents/add", data=data)
             return resp.status_code == 200
         except httpx.HTTPError:
             return False
 
-    def get_torrent_hashes(self) -> set[str]:
+    def start_torrents(self, hashes: list[str]) -> bool:
+        """Resume/start paused torrents. qBittorrent v5 uses 'start', v4 uses 'resume'."""
         self._ensure_logged_in()
+        if not hashes:
+            return True
+        payload = {"hashes": "|".join(hashes)}
+        for endpoint in ("/api/v2/torrents/start", "/api/v2/torrents/resume"):
+            try:
+                resp = self.client.post(endpoint, data=payload)
+                if resp.status_code == 200:
+                    return True
+            except httpx.HTTPError:
+                continue
+        return False
+
+    def torrents_info(self, tag: str | None = None) -> list[dict]:
+        """List torrents, optionally filtered by tag."""
+        self._ensure_logged_in()
+        params: dict[str, str] = {}
+        if tag:
+            params["tag"] = tag
         try:
-            resp = self.client.get("/api/v2/torrents/info")
+            resp = self.client.get("/api/v2/torrents/info", params=params)
             resp.raise_for_status()
-            return {t["hash"].lower() for t in resp.json()}
-        except (httpx.HTTPError, KeyError):
+            return resp.json()
+        except httpx.HTTPError:
+            return []
+
+    def get_torrent_hashes(self) -> set[str]:
+        try:
+            return {t["hash"].lower() for t in self.torrents_info()}
+        except KeyError:
             return set()
 
     def close(self) -> None:

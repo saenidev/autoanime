@@ -1,0 +1,77 @@
+"""Plan which torrents to add active vs. paused, and which paused ones to resume.
+
+This module is pure Python — no HTTP, no state mutation — so the decision logic
+is fully testable. The CLI layer calls into here with data it has already fetched.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from autoanime.nyaa import parse_title
+
+ACTIVE_STATES = {
+    "downloading",
+    "metaDL",
+    "stalledDL",
+    "queuedDL",
+    "allocating",
+    "forcedDL",
+    "checkingDL",
+    "checkingResumeData",
+}
+PAUSED_STATES = {"pausedDL", "stoppedDL"}
+
+
+@dataclass
+class DownloadPlan:
+    to_add_active: list[dict]
+    to_add_paused: list[dict]
+    to_resume_hashes: list[str]
+
+
+def _ep_num_from_name(name: str) -> int:
+    parsed = parse_title(name)
+    return parsed["episode"] or 0
+
+
+def plan_downloads(
+    new_episodes: list[dict],
+    existing_torrents: list[dict],
+    max_concurrent: int,
+) -> DownloadPlan:
+    """Decide what to do given current state and new episodes.
+
+    - New episodes are processed in episode-number order.
+    - Paused torrents (from earlier runs) are resumed earliest-episode first if
+      there are available slots.
+    - Anything beyond max_concurrent is added paused so it can be resumed later.
+    """
+    if max_concurrent < 1:
+        max_concurrent = 1
+
+    active_count = sum(
+        1 for t in existing_torrents if t.get("state") in ACTIVE_STATES
+    )
+    paused = [t for t in existing_torrents if t.get("state") in PAUSED_STATES]
+    paused_sorted = sorted(paused, key=lambda t: _ep_num_from_name(t.get("name", "")))
+
+    slots = max(0, max_concurrent - active_count)
+    to_resume = paused_sorted[:slots]
+    effective_active = active_count + len(to_resume)
+
+    new_sorted = sorted(new_episodes, key=lambda e: e.get("episode") or 0)
+    to_add_active: list[dict] = []
+    to_add_paused: list[dict] = []
+    for entry in new_sorted:
+        if effective_active < max_concurrent:
+            to_add_active.append(entry)
+            effective_active += 1
+        else:
+            to_add_paused.append(entry)
+
+    return DownloadPlan(
+        to_add_active=to_add_active,
+        to_add_paused=to_add_paused,
+        to_resume_hashes=[t["hash"] for t in to_resume],
+    )

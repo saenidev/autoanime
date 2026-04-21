@@ -282,6 +282,55 @@ class TestCheckCommand:
         assert result.exit_code == 0
         assert "nothing new" in result.output
 
+    def test_check_batch_queues_overflow(self, tmp_path):
+        """With max_concurrent=1, a batch of 3 new eps should queue eps 2-3 as paused."""
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(DEFAULT_CONFIG)
+
+        shows = {
+            "frieren": Show(
+                anilist_id=1,
+                title="Frieren",
+                search_query="SubsPlease Frieren 1080p",
+                downloaded_episodes=set(),
+            )
+        }
+
+        def _mk(ep):
+            return {
+                "title": f"[SubsPlease] Frieren - {ep:02d} (1080p) [H].mkv",
+                "info_hash": f"hash{ep}",
+                "magnet": f"magnet:?xt=urn:btih:hash{ep}",
+                "size_bytes": 500_000_000,
+                "seeders": 100,
+                "group": "SubsPlease",
+                "episode": ep,
+                "quality": "1080p",
+                "is_batch": False,
+                "version": 1,
+            }
+
+        runner = CliRunner()
+        with (
+            patch(
+                "autoanime.cli.load_config",
+                return_value=__import__("autoanime.config", fromlist=["load_config"]).load_config(config_path),
+            ),
+            patch("autoanime.cli.load_state", return_value=shows),
+            patch("autoanime.cli.save_state"),
+            patch("autoanime.cli.fetch_rss", return_value=[_mk(3), _mk(1), _mk(2)]),
+        ):
+            result = runner.invoke(main, ["check", "--dry-run"])
+
+        # Ep 1 should be the one downloaded (active), eps 2-3 queued
+        lines = result.output.splitlines()
+        dl_line = next(line for line in lines if "Would download" in line)
+        assert "Frieren - 01" in dl_line
+        queue_lines = [line for line in lines if "Would queue" in line]
+        assert len(queue_lines) == 2
+        assert any("Frieren - 02" in line for line in queue_lines)
+        assert any("Frieren - 03" in line for line in queue_lines)
+
     def test_check_no_shows(self, tmp_path):
         config_path = tmp_path / "config.toml"
         config_path.write_text(DEFAULT_CONFIG)

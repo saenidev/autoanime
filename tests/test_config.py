@@ -83,6 +83,26 @@ poll_interval_minutes = 30
         assert config.qbittorrent.host == "localhost"
         assert config.defaults.quality == "1080p"
 
+    def test_max_concurrent_default(self, tmp_path):
+        config_path = tmp_path / "config.toml"
+        generate_default_config(path=config_path)
+        config = load_config(path=config_path)
+        assert config.defaults.max_concurrent_per_show == 1
+
+    def test_max_concurrent_override(self, tmp_path):
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(
+            """\
+[defaults]
+quality = "1080p"
+group_priority = ["SubsPlease"]
+max_torrent_size_mb = 4000
+max_concurrent_per_show = 3
+"""
+        )
+        config = load_config(path=config_path)
+        assert config.defaults.max_concurrent_per_show == 3
+
     def test_ignores_unknown_keys(self, tmp_path):
         """Forward compat: config with extra keys from a future version should still load."""
         config_path = tmp_path / "config.toml"

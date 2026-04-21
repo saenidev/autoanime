@@ -7,6 +7,7 @@ import click
 
 from autoanime.anilist import get_air_day, search_anime
 from autoanime.config import CONFIG_PATH, generate_default_config, load_config
+from autoanime.download_plan import plan_downloads
 from autoanime.nyaa import fetch_rss, rank_entries
 from autoanime.qbittorrent import QBittorrentClient, QBittorrentError
 from autoanime.state import Show, load_state, make_slug, save_state
@@ -372,26 +373,64 @@ def check(dry_run: bool, verbose: bool) -> None:
             if ep not in best_per_episode:
                 best_per_episode[ep] = entry
 
-        for ep, entry in sorted(best_per_episode.items()):
-            if dry_run:
-                click.echo(f"  [DRY RUN] Would download: {entry['title']}")
-                downloaded.append(f"{show.title} {ep}")
-            else:
-                if verbose:
-                    click.echo(f"  Downloading: {entry['title']}")
+        show_tag = f"autoanime-{slug}"
+        existing_show_torrents = (
+            qbt.torrents_info(tag=show_tag) if qbt else []
+        )
+        plan = plan_downloads(
+            new_episodes=list(best_per_episode.values()),
+            existing_torrents=existing_show_torrents,
+            max_concurrent=config.defaults.max_concurrent_per_show,
+        )
 
-                success = qbt.add_torrent(
-                    entry["magnet"],
-                    save_path=show.download_dir,
+        if plan.to_resume_hashes and not dry_run:
+            if verbose:
+                click.echo(
+                    f"  Resuming {len(plan.to_resume_hashes)} paused torrent(s) for this show"
                 )
+            qbt.start_torrents(plan.to_resume_hashes)
 
-                if success:
-                    show.downloaded_episodes.add(ep)
-                    downloaded.append(f"{show.title} {ep}")
-                    if not show.nyaa_fingerprint:
-                        show.nyaa_fingerprint = entry["title"]
-                elif verbose:
-                    click.echo(f"  Failed to add torrent for ep {ep}")
+        def _record(entry: dict, paused: bool) -> None:
+            ep = entry["episode"]
+            show.downloaded_episodes.add(ep)
+            if not show.nyaa_fingerprint:
+                show.nyaa_fingerprint = entry["title"]
+            label = "queued" if paused else "downloading"
+            downloaded.append(f"{show.title} {ep}" + (" (queued)" if paused else ""))
+            if verbose or dry_run:
+                prefix = "[DRY RUN] Would " if dry_run else "  "
+                action = "queue" if paused else "download"
+                click.echo(f"{prefix}{action}: {entry['title']}")
+
+        for entry in plan.to_add_active:
+            if dry_run:
+                _record(entry, paused=False)
+                continue
+            success = qbt.add_torrent(
+                entry["magnet"],
+                save_path=show.download_dir,
+                paused=False,
+                tags=f"autoanime,{show_tag}",
+            )
+            if success:
+                _record(entry, paused=False)
+            elif verbose:
+                click.echo(f"  Failed to add torrent for ep {entry['episode']}")
+
+        for entry in plan.to_add_paused:
+            if dry_run:
+                _record(entry, paused=True)
+                continue
+            success = qbt.add_torrent(
+                entry["magnet"],
+                save_path=show.download_dir,
+                paused=True,
+                tags=f"autoanime,{show_tag}",
+            )
+            if success:
+                _record(entry, paused=True)
+            elif verbose:
+                click.echo(f"  Failed to queue torrent for ep {entry['episode']}")
 
         if (
             show.total_episodes
@@ -424,13 +463,16 @@ def schedule() -> None:
 
 @schedule.command()
 def install() -> None:
-    """Install launchd plist to run autoanime check every 15 minutes."""
-    from autoanime.scheduler import install as do_install
+    """Install launchd plist to run autoanime check on the configured interval."""
+    from autoanime.scheduler import _interval_from_config, install as do_install
 
     try:
         path = do_install()
+        secs = _interval_from_config()
+        mins = secs // 60
+        unit = "minute" if mins == 1 else "minutes"
         click.echo(f"✓ Installed launchd plist at {path}")
-        click.echo("  autoanime check will run every 15 minutes")
+        click.echo(f"  autoanime check will run every {mins} {unit}")
     except FileNotFoundError as e:
         click.echo(str(e), err=True)
         sys.exit(1)

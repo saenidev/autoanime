@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 
 import httpx
 
@@ -73,8 +73,15 @@ def _parse_search_response(data: dict) -> list[AniListResult]:
     return results
 
 
-def get_air_day(airing_at: int | None) -> str | None:
+def get_air_day(airing_at: int | None, tz: tzinfo | None = None) -> str | None:
+    """Return the weekday for an AniList airing timestamp.
+
+    Uses the system's local timezone unless `tz` is provided (mainly for tests).
+    """
     if not airing_at:
         return None
-    dt = datetime.fromtimestamp(airing_at, tz=timezone.utc)
+    if tz is None:
+        dt = datetime.fromtimestamp(airing_at)
+    else:
+        dt = datetime.fromtimestamp(airing_at, tz=tz)
     return dt.strftime("%A")

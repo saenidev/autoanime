@@ -1,3 +1,5 @@
+from datetime import datetime, timezone, timedelta
+
 from autoanime.anilist import _parse_search_response, get_air_day
 
 
@@ -88,12 +90,28 @@ class TestParseSearchResponse:
 
 
 class TestGetAirDay:
-    def test_returns_weekday(self):
+    def test_returns_weekday_utc(self):
         # 1700000000 = 2023-11-14 22:13:20 UTC (Tuesday)
-        assert get_air_day(1700000000) == "Tuesday"
+        assert get_air_day(1700000000, tz=timezone.utc) == "Tuesday"
+
+    def test_kst_rollover(self):
+        """Regression: a timestamp that's late Monday UTC may be Tuesday KST."""
+        kst = timezone(timedelta(hours=9))
+        # 2026-04-20 is a Monday; 22:00 UTC = 2026-04-21 07:00 KST (Tuesday)
+        ts = int(datetime(2026, 4, 20, 22, 0, tzinfo=timezone.utc).timestamp())
+        assert get_air_day(ts, tz=timezone.utc) == "Monday"
+        assert get_air_day(ts, tz=kst) == "Tuesday"
 
     def test_none_input(self):
         assert get_air_day(None) is None
 
     def test_zero(self):
         assert get_air_day(0) is None
+
+    def test_defaults_to_local(self):
+        """Without tz, returns something (exact day depends on system tz)."""
+        result = get_air_day(1700000000)
+        assert result in {
+            "Sunday", "Monday", "Tuesday", "Wednesday",
+            "Thursday", "Friday", "Saturday",
+        }

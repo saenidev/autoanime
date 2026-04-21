@@ -2,6 +2,8 @@
 
 Auto-download anime episodes from Nyaa via qBittorrent when they air.
 
+> **macOS only for now.** The scheduling layer is `launchd`-based (`~/Library/LaunchAgents/`) and the install helpers shell out to `launchctl`. Everything else (AniList client, Nyaa RSS, title parsing, qBittorrent API) is cross-platform — Linux/Windows support just needs a platform-specific scheduler (systemd timer / Task Scheduler). PRs welcome.
+
 ## Install
 
 ```bash

@@ -13,11 +13,13 @@ src/autoanime/
   nyaa.py           # RSS fetch + title parsing + ranking  ← critical path
   qbittorrent.py    # Web API client (v4/v5 compatible)
   download_plan.py  # Pure planner: which torrents active vs paused
-  scheduler.py      # launchd plist generation
-tests/              # 102 pytest tests, no HTTP mocking
+  scheduler.py      # launchd plist generation  ← macOS only
+tests/              # 105 pytest tests, no HTTP mocking
 ```
 
 Client modules separate HTTP from parsing so parsing is tested with fixture data only. Keep this separation when extending them.
+
+**Platform scope:** the project is macOS-only today. Only `scheduler.py` and the `~/Library/LaunchAgents/` path in cli.py's `schedule` subcommand are platform-specific — everything else is portable. Cross-platform support should add a new scheduler module per platform (e.g., `scheduler_linux.py` for systemd, `scheduler_windows.py` for Task Scheduler) and dispatch from cli.py based on `sys.platform`. Do not break the macOS path.
 
 ## Testing
 

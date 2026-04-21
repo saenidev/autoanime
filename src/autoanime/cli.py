@@ -403,7 +403,7 @@ def check(dry_run: bool, verbose: bool) -> None:
                 action = "queue" if paused else "download"
                 click.echo(f"{prefix}{action}: {entry['title']}")
 
-        # Add active torrents in episode order so ep 1 is registered first
+        # Add active torrents in ascending episode order
         for entry in plan.to_add_active:
             if dry_run:
                 _record(entry, paused=False)
@@ -413,7 +413,6 @@ def check(dry_run: bool, verbose: bool) -> None:
                 save_path=show.download_dir,
                 paused=False,
                 tags=f"autoanime,{show_tag}",
-                first_last_piece_prio=True,
             )
             if success:
                 _record(entry, paused=False)
@@ -422,7 +421,7 @@ def check(dry_run: bool, verbose: bool) -> None:
             elif verbose:
                 click.echo(f"  Failed to add torrent for ep {entry['episode']}")
 
-        # Give qBittorrent a queue-priority signal: earliest episode first.
+        # Queue-priority signal: lowest new episode number at top.
         # Effect on bandwidth requires queueing enabled in qBittorrent preferences.
         if active_hashes_added and not dry_run:
             qbt.set_top_priority(active_hashes_added)
@@ -436,7 +435,6 @@ def check(dry_run: bool, verbose: bool) -> None:
                 save_path=show.download_dir,
                 paused=True,
                 tags=f"autoanime,{show_tag}",
-                first_last_piece_prio=True,
             )
             if success:
                 _record(entry, paused=True)

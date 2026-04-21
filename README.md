@@ -69,15 +69,11 @@ autoanime schedule uninstall
 
 ## How batch downloads behave
 
-When several new episodes drop at once (e.g. you added a show mid-season), autoanime:
+When several new episodes drop at once (e.g. you added a show mid-season, or missed a few checks), autoanime adds them all to qBittorrent concurrently and tells qBittorrent to sort them in the queue by episode number — **lowest new episode at the top**. "Lowest" is relative to what you haven't downloaded yet: if you already have eps 1–10 and eps 11–14 arrive, ep 11 goes on top.
 
-1. Adds all new episodes to qBittorrent concurrently, **earliest first**
-2. Calls qBittorrent's `topPrio` API to set queue priority so ep 1 is topmost
-3. Enables `firstLastPiecePrio` on each torrent so the first and last pieces of each file download first (useful if your player supports partial playback)
+**Honest caveat:** qBittorrent doesn't do bandwidth prioritization *between* active torrents — with N parallel downloads splitting your link, they finish at roughly the same time regardless of queue position. Queue priority only affects bandwidth when qBittorrent's queueing system is enabled (Preferences → BitTorrent → "Torrent queueing") with a limited `max_active_downloads`.
 
-**Honest caveat:** qBittorrent doesn't do bandwidth prioritization *between* active torrents — with N parallel downloads splitting your link, they finish at roughly the same time regardless of queue position. Queue priority mainly matters when qBittorrent's queueing system is enabled (Preferences → BitTorrent → "Torrent queueing") with a limited `max_active_downloads`.
-
-If you want strict serial (ep 1 finishes before ep 2 starts), set `max_concurrent_per_show = 1` in config.toml. Episodes beyond the limit are added to qBittorrent paused and tagged `autoanime-<show-slug>`; subsequent `check` runs resume the earliest paused episode when a slot frees up.
+If you want strict serial (the lowest-numbered new episode finishes before the next one starts), set `max_concurrent_per_show = 1` in config.toml. Episodes beyond the limit are added to qBittorrent paused and tagged `autoanime-<show-slug>`; subsequent `check` runs resume the earliest paused episode when a slot frees up.
 
 ## Config
 

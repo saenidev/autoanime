@@ -50,7 +50,6 @@ class QBittorrentClient:
         save_path: str | None = None,
         paused: bool = False,
         tags: str | None = None,
-        first_last_piece_prio: bool = True,
     ) -> bool:
         self._ensure_logged_in()
         data: dict[str, str] = {"urls": magnet}
@@ -61,8 +60,6 @@ class QBittorrentClient:
             data["paused"] = "true"
         if tags:
             data["tags"] = tags
-        if first_last_piece_prio:
-            data["firstLastPiecePrio"] = "true"
         try:
             resp = self.client.post("/api/v2/torrents/add", data=data)
             return resp.status_code == 200

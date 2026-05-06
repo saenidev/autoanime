@@ -48,10 +48,26 @@ class TestAddCommand:
             )
         ]
 
-    def test_add_show(self, tmp_path):
+    def _entry(self, **kwargs):
+        base = {
+            "title": "[SubsPlease] Sousou no Frieren - 01 (1080p) [HASH].mkv",
+            "info_hash": "abc",
+            "magnet": "magnet:?",
+            "size_bytes": 500 * 1024**2,
+            "seeders": 100,
+            "group": "SubsPlease",
+            "episode": 1,
+            "quality": "1080p",
+            "is_batch": False,
+            "version": 1,
+        }
+        base.update(kwargs)
+        return base
+
+    def test_add_show_falls_back_when_no_nyaa_hits(self, tmp_path):
+        """0 Nyaa hits → no picker, group_override stays None, add still completes."""
         config_path = tmp_path / "config.toml"
         config_path.write_text(DEFAULT_CONFIG)
-        state_path = tmp_path / "state.json"
 
         runner = CliRunner()
         with (
@@ -59,14 +75,93 @@ class TestAddCommand:
             patch("autoanime.cli.load_config", return_value=__import__("autoanime.config", fromlist=["load_config"]).load_config(config_path)),
             patch("autoanime.cli.load_state", return_value={}),
             patch("autoanime.cli.save_state") as mock_save,
+            patch("autoanime.cli.fetch_rss", return_value=[]),
         ):
             result = runner.invoke(main, ["add", "Frieren"], input="y\n")
 
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         assert "Now tracking Sousou no Frieren" in result.output
-        mock_save.assert_called_once()
+        assert "No releases found on Nyaa yet" in result.output
         shows = mock_save.call_args[0][0]
-        assert "sousou-no-frieren" in shows
+        show = shows["sousou-no-frieren"]
+        assert show.group_override is None
+        # Query has no group prefix anymore
+        assert show.search_query == "Sousou no Frieren 1080p"
+
+    def test_add_show_with_picker(self, tmp_path):
+        """Multiple groups in Nyaa results → picker, user choice saved as group_override."""
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(DEFAULT_CONFIG)
+
+        entries = [
+            self._entry(group="Sokudo", episode=1, info_hash="s1"),
+            self._entry(group="Sokudo", episode=2, info_hash="s2"),
+            self._entry(group="DKB", episode=1, info_hash="d1"),
+        ]
+        runner = CliRunner()
+        with (
+            patch("autoanime.cli.search_anime", return_value=self._mock_results()),
+            patch("autoanime.cli.load_config", return_value=__import__("autoanime.config", fromlist=["load_config"]).load_config(config_path)),
+            patch("autoanime.cli.load_state", return_value={}),
+            patch("autoanime.cli.save_state") as mock_save,
+            patch("autoanime.cli.fetch_rss", return_value=entries),
+        ):
+            # y to anilist confirm, 2 picks DKB
+            result = runner.invoke(main, ["add", "Frieren"], input="y\n2\n")
+
+        assert result.exit_code == 0, result.output
+        assert "Available release groups" in result.output
+        shows = mock_save.call_args[0][0]
+        # Sokudo has 2 eps so it's listed first; DKB is #2
+        assert shows["sousou-no-frieren"].group_override == "DKB"
+
+    def test_add_show_picker_default_first(self, tmp_path):
+        """User just hits enter → defaults to first listed group."""
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(DEFAULT_CONFIG)
+
+        entries = [
+            self._entry(group="SubsPlease", episode=1, info_hash="sp1"),
+            self._entry(group="DKB", episode=1, info_hash="d1"),
+        ]
+        runner = CliRunner()
+        with (
+            patch("autoanime.cli.search_anime", return_value=self._mock_results()),
+            patch("autoanime.cli.load_config", return_value=__import__("autoanime.config", fromlist=["load_config"]).load_config(config_path)),
+            patch("autoanime.cli.load_state", return_value={}),
+            patch("autoanime.cli.save_state") as mock_save,
+            patch("autoanime.cli.fetch_rss", return_value=entries),
+        ):
+            # y, then empty for default
+            result = runner.invoke(main, ["add", "Frieren"], input="y\n\n")
+
+        assert result.exit_code == 0, result.output
+        shows = mock_save.call_args[0][0]
+        # SubsPlease is in default group_priority → sorted first → default pick
+        assert shows["sousou-no-frieren"].group_override == "SubsPlease"
+
+    def test_add_with_group_flag_skips_picker(self, tmp_path):
+        """--group X bypasses Nyaa fetch + picker entirely."""
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(DEFAULT_CONFIG)
+
+        runner = CliRunner()
+        with (
+            patch("autoanime.cli.search_anime", return_value=self._mock_results()),
+            patch("autoanime.cli.load_config", return_value=__import__("autoanime.config", fromlist=["load_config"]).load_config(config_path)),
+            patch("autoanime.cli.load_state", return_value={}),
+            patch("autoanime.cli.save_state") as mock_save,
+            patch("autoanime.cli.fetch_rss") as mock_fetch,
+        ):
+            result = runner.invoke(
+                main, ["add", "Frieren", "--group", "Sokudo"], input="y\n"
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_fetch.assert_not_called()
+        shows = mock_save.call_args[0][0]
+        assert shows["sousou-no-frieren"].group_override == "Sokudo"
+        assert shows["sousou-no-frieren"].search_query == "Sousou no Frieren 1080p"
 
     def test_add_with_from_ep(self, tmp_path):
         config_path = tmp_path / "config.toml"
@@ -78,6 +173,7 @@ class TestAddCommand:
             patch("autoanime.cli.load_config", return_value=__import__("autoanime.config", fromlist=["load_config"]).load_config(config_path)),
             patch("autoanime.cli.load_state", return_value={}),
             patch("autoanime.cli.save_state") as mock_save,
+            patch("autoanime.cli.fetch_rss", return_value=[]),
         ):
             result = runner.invoke(
                 main, ["add", "Frieren", "--from", "8"], input="y\n"
@@ -399,6 +495,60 @@ poll_interval_minutes = 60
         assert len(dl_lines) == 1
         assert "Frieren - 01" in dl_lines[0]
         assert len(queue_lines) == 2
+
+    def test_check_honors_group_override(self, tmp_path):
+        """Show with group_override='Sokudo' must only download Sokudo releases."""
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(DEFAULT_CONFIG)
+
+        shows = {
+            "nippon": Show(
+                anilist_id=1,
+                title="Nippon Sangoku",
+                search_query="Nippon Sangoku 1080p",
+                group_override="Sokudo",
+                downloaded_episodes=set(),
+            )
+        }
+
+        def _mk(group, ep, ihash):
+            return {
+                "title": f"[{group}] Nippon Sangoku - S01E{ep:02d} (1080p) [H].mkv",
+                "info_hash": ihash,
+                "magnet": f"magnet:?xt=urn:btih:{ihash}",
+                "size_bytes": 500_000_000,
+                "seeders": 100,
+                "group": group,
+                "episode": ep,
+                "quality": "1080p",
+                "is_batch": False,
+                "version": 1,
+            }
+
+        entries = [
+            _mk("Erai-raws", 1, "e1"),
+            _mk("Erai-raws", 2, "e2"),
+            _mk("Sokudo", 1, "s1"),
+            _mk("Sokudo", 2, "s2"),
+        ]
+
+        runner = CliRunner()
+        with (
+            patch("autoanime.cli.load_config", return_value=__import__("autoanime.config", fromlist=["load_config"]).load_config(config_path)),
+            patch("autoanime.cli.load_state", return_value=shows),
+            patch("autoanime.cli.save_state"),
+            patch("autoanime.cli.fetch_rss", return_value=entries) as mock_fetch,
+        ):
+            result = runner.invoke(main, ["check", "--dry-run"])
+
+        assert result.exit_code == 0, result.output
+        # Only Sokudo episodes appear in download lines
+        lines = [line for line in result.output.splitlines() if "Would download" in line]
+        assert len(lines) == 2
+        assert all("[Sokudo]" in line for line in lines)
+        # filter=0 was used (because group_override is set)
+        # fetch_rss(query, mirrors, category, filter_)
+        assert mock_fetch.call_args.args[3] == 0
 
     def test_check_no_shows(self, tmp_path):
         config_path = tmp_path / "config.toml"

@@ -1,4 +1,10 @@
-from autoanime.nyaa import _parse_size, build_magnet, parse_title, rank_entries
+from autoanime.nyaa import (
+    _parse_size,
+    build_magnet,
+    parse_title,
+    rank_entries,
+    summarize_groups,
+)
 
 
 class TestParseTitle:
@@ -202,3 +208,165 @@ class TestRankEntries:
         ]
         ranked = rank_entries(entries, ["SubsPlease"], "1080p", 4000)
         assert ranked[0]["group"] == "SubsPlease"
+
+    def test_strict_group_filters_out_others(self):
+        entries = [
+            self._make_entry(group="Erai-raws", info_hash="a"),
+            self._make_entry(group="Sokudo", info_hash="b"),
+            self._make_entry(group="DKB", info_hash="c"),
+        ]
+        ranked = rank_entries(
+            entries, ["SubsPlease"], "1080p", 4000, strict_group="Sokudo"
+        )
+        assert [e["group"] for e in ranked] == ["Sokudo"]
+
+    def test_strict_group_none_keeps_all(self):
+        entries = [
+            self._make_entry(group="Erai-raws", info_hash="a"),
+            self._make_entry(group="Sokudo", info_hash="b"),
+        ]
+        ranked = rank_entries(
+            entries, ["SubsPlease"], "1080p", 4000, strict_group=None
+        )
+        assert len(ranked) == 2
+
+
+class TestSummarizeGroups:
+    def _entry(self, **kwargs):
+        base = {
+            "title": "[X] Show - 01 (1080p) [HASH].mkv",
+            "info_hash": "abc",
+            "magnet": "magnet:?",
+            "size_bytes": 500 * 1024**2,
+            "seeders": 10,
+            "group": "X",
+            "episode": 1,
+            "quality": "1080p",
+            "is_batch": False,
+            "version": 1,
+        }
+        base.update(kwargs)
+        return base
+
+    def test_groups_by_release_group(self):
+        entries = [
+            self._entry(group="Sokudo", episode=1),
+            self._entry(group="Sokudo", episode=2),
+            self._entry(group="DKB", episode=1),
+        ]
+        summaries = summarize_groups(entries, [])
+        names = sorted(s.group for s in summaries)
+        assert names == ["DKB", "Sokudo"]
+
+    def test_episode_count_uses_distinct_episodes(self):
+        entries = [
+            self._entry(group="A", episode=1, info_hash="a"),
+            self._entry(group="A", episode=1, info_hash="b"),
+            self._entry(group="A", episode=2, info_hash="c"),
+        ]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].episode_count == 2
+
+    def test_latest_episode(self):
+        entries = [
+            self._entry(group="A", episode=3),
+            self._entry(group="A", episode=5),
+            self._entry(group="A", episode=1),
+        ]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].latest_episode == 5
+
+    def test_avg_size_mb(self):
+        entries = [
+            self._entry(group="A", size_bytes=1000 * 1024**2),
+            self._entry(group="A", size_bytes=1400 * 1024**2),
+        ]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].avg_size_mb == 1200
+
+    def test_skips_entries_with_no_group(self):
+        entries = [
+            self._entry(group=None, episode=1),
+            self._entry(group="A", episode=1),
+        ]
+        summaries = summarize_groups(entries, [])
+        assert [s.group for s in summaries] == ["A"]
+
+    def test_skips_batches(self):
+        entries = [
+            self._entry(group="A", is_batch=True, episode=None),
+            self._entry(group="A", is_batch=False, episode=1),
+        ]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].episode_count == 1
+
+    def test_preferred_groups_sort_first_in_priority_order(self):
+        entries = [
+            self._entry(group="DKB", episode=1),
+            self._entry(group="Sokudo", episode=1),
+            self._entry(group="Erai-raws", episode=1),
+        ]
+        summaries = summarize_groups(entries, ["Erai-raws", "Sokudo"])
+        assert [s.group for s in summaries[:2]] == ["Erai-raws", "Sokudo"]
+        assert summaries[0].is_preferred is True
+        assert summaries[2].is_preferred is False
+
+    def test_non_preferred_sorted_by_episode_count_desc(self):
+        entries = [
+            self._entry(group="A", episode=1),
+            self._entry(group="B", episode=1),
+            self._entry(group="B", episode=2),
+            self._entry(group="B", episode=3),
+            self._entry(group="C", episode=1),
+            self._entry(group="C", episode=2),
+        ]
+        summaries = summarize_groups(entries, [])
+        assert [s.group for s in summaries] == ["B", "C", "A"]
+
+    def test_codec_hint_av1(self):
+        entries = [
+            self._entry(
+                group="A",
+                title="[A] Show S01E01 [1080p WEB-DL AV1][Dual Audio]",
+            )
+        ]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].codec_hint == "AV1"
+
+    def test_codec_hint_hevc(self):
+        entries = [
+            self._entry(
+                group="A",
+                title="[A] Show - S01E01 [1080p][HEVC x265 10bit][Dual-Audio]",
+            )
+        ]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].codec_hint == "HEVC"
+
+    def test_codec_hint_h264(self):
+        entries = [
+            self._entry(
+                group="A",
+                title="[A] Show - 01 [1080p AMZN WEB-DL AVC EAC3]",
+            )
+        ]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].codec_hint == "x264"
+
+    def test_audio_hint_dual_audio(self):
+        entries = [
+            self._entry(
+                group="A",
+                title="[A] Show - 01 [1080p][Dual-Audio]",
+            )
+        ]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].audio_hint == "dual-audio"
+
+    def test_audio_hint_none_when_absent(self):
+        entries = [self._entry(group="A", title="[A] Show - 01 [1080p]")]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].audio_hint is None
+
+    def test_empty_input(self):
+        assert summarize_groups([], []) == []

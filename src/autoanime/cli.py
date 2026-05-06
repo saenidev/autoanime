@@ -8,7 +8,7 @@ import click
 from autoanime.anilist import get_air_day, search_anime
 from autoanime.config import CONFIG_PATH, generate_default_config, load_config
 from autoanime.download_plan import plan_downloads
-from autoanime.nyaa import fetch_rss, rank_entries
+from autoanime.nyaa import GroupSummary, fetch_rss, rank_entries, summarize_groups
 from autoanime.qbittorrent import QBittorrentClient, QBittorrentError
 from autoanime.state import Show, load_state, make_slug, save_state
 
@@ -113,10 +113,16 @@ def add(
         alt_titles.append(top.title_native)
     alt_titles.extend(top.synonyms)
 
-    preferred_group = group or config.defaults.group_priority[0]
     preferred_quality = quality or config.defaults.quality
     search_name = top.title_romaji.split(":")[0].strip()
-    search_query = f"{preferred_group} {search_name} {preferred_quality}"
+    search_query = f"{search_name} {preferred_quality}"
+
+    chosen_group = group
+    if chosen_group is None:
+        chosen_group = _pick_release_group(
+            search_query, config.nyaa.mirrors, config.nyaa.category,
+            config.defaults.group_priority,
+        )
 
     downloaded: set[int] = set()
     if from_ep and from_ep > 1:
@@ -127,7 +133,7 @@ def add(
         title=top.title_romaji,
         alt_titles=alt_titles,
         search_query=search_query,
-        group_override=group,
+        group_override=chosen_group,
         quality_override=quality,
         download_dir=download_dir,
         total_episodes=top.episodes,
@@ -143,6 +149,80 @@ def add(
     if downloaded:
         click.echo(f"  Episodes 1-{from_ep - 1} marked as downloaded")
     click.echo(f"  Search query: {search_query}")
+    click.echo(f"  Release group: {chosen_group or '(none — using config priority)'}")
+
+
+def _fetch_show(show: Show, config) -> list[dict]:
+    # When a show has an explicit group_override, that group may not be a
+    # trusted Nyaa uploader — bypass the global trusted filter for it.
+    filter_ = 0 if show.group_override else config.nyaa.filter
+    return fetch_rss(
+        show.search_query,
+        config.nyaa.mirrors,
+        config.nyaa.category,
+        filter_,
+    )
+
+
+def _rank_show(show: Show, config, entries: list[dict]) -> list[dict]:
+    return rank_entries(
+        entries,
+        config.defaults.group_priority,
+        show.quality_override or config.defaults.quality,
+        config.defaults.max_torrent_size_mb,
+        strict_group=show.group_override,
+    )
+
+
+def _format_group_summary(s: GroupSummary) -> str:
+    parts = [f"{s.episode_count} eps"]
+    parts.append(f"latest E{s.latest_episode:02d}")
+    if s.avg_size_mb:
+        parts.append(f"~{s.avg_size_mb}MB")
+    if s.quality:
+        parts.append(s.quality)
+    if s.codec_hint:
+        parts.append(s.codec_hint)
+    if s.audio_hint:
+        parts.append(s.audio_hint)
+    if s.is_preferred:
+        parts.append("[preferred]")
+    return ", ".join(parts)
+
+
+def _pick_release_group(
+    search_query: str,
+    mirrors: list[str],
+    category: str,
+    group_priority: list[str],
+) -> str | None:
+    """Fetch unfiltered Nyaa results, show interactive picker, return chosen group.
+
+    Returns None when nothing on Nyaa yet — caller falls back to config priority.
+    """
+    click.echo(f"\nSearching Nyaa for '{search_query}'...")
+    entries = fetch_rss(search_query, mirrors, category, 0)
+    summaries = summarize_groups(entries, group_priority)
+
+    if not summaries:
+        click.echo(
+            "  No releases found on Nyaa yet — will use config group priority "
+            "until releases appear."
+        )
+        return None
+
+    click.echo("\nAvailable release groups:")
+    width = max(len(s.group) for s in summaries)
+    for i, s in enumerate(summaries, 1):
+        click.echo(f"  {i}. {s.group:<{width}}  {_format_group_summary(s)}")
+
+    choice = click.prompt(
+        f"\nPick a group (1-{len(summaries)})", type=int, default=1
+    )
+    if choice < 1 or choice > len(summaries):
+        click.echo("Invalid choice, using #1.")
+        choice = 1
+    return summaries[choice - 1].group
 
 
 @main.command()
@@ -251,19 +331,8 @@ def status() -> None:
         if show.archived:
             continue
 
-        entries = fetch_rss(
-            show.search_query,
-            config.nyaa.mirrors,
-            config.nyaa.category,
-            config.nyaa.filter,
-        )
-
-        ranked = rank_entries(
-            entries,
-            config.defaults.group_priority,
-            show.quality_override or config.defaults.quality,
-            config.defaults.max_torrent_size_mb,
-        )
+        entries = _fetch_show(show, config)
+        ranked = _rank_show(show, config, entries)
 
         seen: set[int] = set()
         new_eps: list[dict] = []
@@ -339,23 +408,15 @@ def check(dry_run: bool, verbose: bool) -> None:
         if verbose:
             click.echo(f"\nChecking {show.title}...")
             click.echo(f"  Query: {show.search_query}")
+            if show.group_override:
+                click.echo(f"  Group override: {show.group_override}")
 
-        entries = fetch_rss(
-            show.search_query,
-            config.nyaa.mirrors,
-            config.nyaa.category,
-            config.nyaa.filter,
-        )
+        entries = _fetch_show(show, config)
 
         if verbose:
             click.echo(f"  Found {len(entries)} RSS entries")
 
-        ranked = rank_entries(
-            entries,
-            config.defaults.group_priority,
-            show.quality_override or config.defaults.quality,
-            config.defaults.max_torrent_size_mb,
-        )
+        ranked = _rank_show(show, config, entries)
 
         best_per_episode: dict[int, dict] = {}
         for entry in ranked:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import time
+from collections import Counter
+from dataclasses import dataclass
 from urllib.parse import quote_plus
 
 import feedparser
@@ -121,6 +123,7 @@ def rank_entries(
     group_priority: list[str],
     quality: str,
     max_size_mb: int,
+    strict_group: str | None = None,
 ) -> list[dict]:
     max_size_bytes = max_size_mb * 1024 * 1024
 
@@ -134,6 +137,8 @@ def rank_entries(
             continue
         if e["quality"] and e["quality"] != quality:
             continue
+        if strict_group and e["group"] != strict_group:
+            continue
         filtered.append(e)
 
     def sort_key(e: dict) -> tuple:
@@ -146,3 +151,76 @@ def rank_entries(
 
     filtered.sort(key=sort_key)
     return filtered
+
+
+@dataclass
+class GroupSummary:
+    group: str
+    episode_count: int
+    latest_episode: int
+    avg_size_mb: int
+    quality: str | None
+    codec_hint: str | None
+    audio_hint: str | None
+    is_preferred: bool
+
+
+_CODEC_PATTERNS = [
+    ("AV1", re.compile(r"\bAV1\b", re.IGNORECASE)),
+    ("HEVC", re.compile(r"\b(?:HEVC|x265|h\.?265)\b", re.IGNORECASE)),
+    ("x264", re.compile(r"\b(?:x264|h\.?264|AVC)\b", re.IGNORECASE)),
+]
+_DUAL_AUDIO_RE = re.compile(r"\bdual[\s-]?audio\b", re.IGNORECASE)
+
+
+def _codec_for_title(title: str) -> str | None:
+    for label, pattern in _CODEC_PATTERNS:
+        if pattern.search(title):
+            return label
+    return None
+
+
+def summarize_groups(
+    entries: list[dict], group_priority: list[str]
+) -> list[GroupSummary]:
+    """Group parsed Nyaa entries by release group for the add-time picker.
+
+    Skips batches and entries with no group bracket. Sorts preferred groups
+    (those in `group_priority`) first, then the rest by episode count desc.
+    """
+    by_group: dict[str, list[dict]] = {}
+    for e in entries:
+        group = e.get("group")
+        if not group or e.get("is_batch") or e.get("episode") is None:
+            continue
+        by_group.setdefault(group, []).append(e)
+
+    summaries: list[GroupSummary] = []
+    for group, items in by_group.items():
+        episodes = {e["episode"] for e in items}
+        sizes = [e["size_bytes"] for e in items if e["size_bytes"] > 0]
+        avg_bytes = sum(sizes) // len(sizes) if sizes else 0
+        qualities = Counter(e["quality"] for e in items if e["quality"])
+        codecs = Counter(c for c in (_codec_for_title(e["title"]) for e in items) if c)
+        has_dual = any(_DUAL_AUDIO_RE.search(e["title"]) for e in items)
+
+        summaries.append(
+            GroupSummary(
+                group=group,
+                episode_count=len(episodes),
+                latest_episode=max(episodes),
+                avg_size_mb=avg_bytes // (1024 * 1024),
+                quality=qualities.most_common(1)[0][0] if qualities else None,
+                codec_hint=codecs.most_common(1)[0][0] if codecs else None,
+                audio_hint="dual-audio" if has_dual else None,
+                is_preferred=group in group_priority,
+            )
+        )
+
+    def sort_key(s: GroupSummary) -> tuple:
+        if s.is_preferred:
+            return (0, group_priority.index(s.group), 0, 0)
+        return (1, 0, -s.episode_count, -s.latest_episode)
+
+    summaries.sort(key=sort_key)
+    return summaries

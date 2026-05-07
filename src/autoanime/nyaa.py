@@ -158,6 +158,7 @@ class GroupSummary:
     group: str
     episode_count: int
     latest_episode: int
+    total_seeders: int
     avg_size_mb: int
     quality: str | None
     codec_hint: str | None
@@ -209,6 +210,7 @@ def summarize_groups(
                 group=group,
                 episode_count=len(episodes),
                 latest_episode=max(episodes),
+                total_seeders=sum(e["seeders"] for e in items),
                 avg_size_mb=avg_bytes // (1024 * 1024),
                 quality=qualities.most_common(1)[0][0] if qualities else None,
                 codec_hint=codecs.most_common(1)[0][0] if codecs else None,
@@ -217,10 +219,13 @@ def summarize_groups(
             )
         )
 
-    def sort_key(s: GroupSummary) -> tuple:
-        if s.is_preferred:
-            return (0, group_priority.index(s.group), 0, 0)
-        return (1, 0, -s.episode_count, -s.latest_episode)
-
-    summaries.sort(key=sort_key)
+    # Most-seeded group first; ties broken by ep count, latest ep, preferred flag.
+    summaries.sort(
+        key=lambda s: (
+            -s.total_seeders,
+            -s.episode_count,
+            -s.latest_episode,
+            not s.is_preferred,
+        )
+    )
     return summaries

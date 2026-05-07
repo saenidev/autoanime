@@ -300,27 +300,46 @@ class TestSummarizeGroups:
         summaries = summarize_groups(entries, [])
         assert summaries[0].episode_count == 1
 
-    def test_preferred_groups_sort_first_in_priority_order(self):
+    def test_sorted_by_total_seeders_desc(self):
         entries = [
-            self._entry(group="DKB", episode=1),
-            self._entry(group="Sokudo", episode=1),
-            self._entry(group="Erai-raws", episode=1),
-        ]
-        summaries = summarize_groups(entries, ["Erai-raws", "Sokudo"])
-        assert [s.group for s in summaries[:2]] == ["Erai-raws", "Sokudo"]
-        assert summaries[0].is_preferred is True
-        assert summaries[2].is_preferred is False
-
-    def test_non_preferred_sorted_by_episode_count_desc(self):
-        entries = [
-            self._entry(group="A", episode=1),
-            self._entry(group="B", episode=1),
-            self._entry(group="B", episode=2),
-            self._entry(group="B", episode=3),
-            self._entry(group="C", episode=1),
-            self._entry(group="C", episode=2),
+            self._entry(group="A", episode=1, seeders=50, info_hash="a"),
+            self._entry(group="B", episode=1, seeders=200, info_hash="b"),
+            self._entry(group="C", episode=1, seeders=100, info_hash="c"),
         ]
         summaries = summarize_groups(entries, [])
+        assert [s.group for s in summaries] == ["B", "C", "A"]
+
+    def test_total_seeders_is_sum_across_releases(self):
+        entries = [
+            self._entry(group="A", episode=1, seeders=30, info_hash="a1"),
+            self._entry(group="A", episode=2, seeders=70, info_hash="a2"),
+        ]
+        summaries = summarize_groups(entries, [])
+        assert summaries[0].total_seeders == 100
+
+    def test_seeders_override_preferred_badge(self):
+        """Preferred is informational; a non-preferred group with more seeders sorts first."""
+        entries = [
+            self._entry(group="Sokudo", episode=1, seeders=500, info_hash="s"),
+            self._entry(group="SubsPlease", episode=1, seeders=10, info_hash="sp"),
+        ]
+        summaries = summarize_groups(entries, ["SubsPlease"])
+        assert [s.group for s in summaries] == ["Sokudo", "SubsPlease"]
+        # is_preferred is still set correctly even though sort ignored it
+        assert summaries[1].is_preferred is True
+        assert summaries[0].is_preferred is False
+
+    def test_episode_count_tiebreak_when_seeders_equal(self):
+        entries = [
+            self._entry(group="A", episode=1, seeders=10, info_hash="a"),
+            self._entry(group="B", episode=1, seeders=10, info_hash="b1"),
+            self._entry(group="B", episode=2, seeders=10, info_hash="b2"),
+            self._entry(group="B", episode=3, seeders=10, info_hash="b3"),
+            self._entry(group="C", episode=1, seeders=10, info_hash="c1"),
+            self._entry(group="C", episode=2, seeders=10, info_hash="c2"),
+        ]
+        summaries = summarize_groups(entries, [])
+        # B (30) > C (20) > A (10) by total_seeders since seeders/release equal
         assert [s.group for s in summaries] == ["B", "C", "A"]
 
     def test_codec_hint_av1(self):

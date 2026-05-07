@@ -176,6 +176,7 @@ def _rank_show(show: Show, config, entries: list[dict]) -> list[dict]:
 
 def _format_group_summary(s: GroupSummary) -> str:
     parts = [f"{s.episode_count} eps"]
+    parts.append(f"{s.total_seeders} seeders")
     parts.append(f"latest E{s.latest_episode:02d}")
     if s.avg_size_mb:
         parts.append(f"~{s.avg_size_mb}MB")

@@ -455,9 +455,10 @@ def check(dry_run: bool, verbose: bool) -> None:
 
         def _record(entry: dict, paused: bool) -> None:
             ep = entry["episode"]
-            show.downloaded_episodes.add(ep)
-            if not show.nyaa_fingerprint:
-                show.nyaa_fingerprint = entry["title"]
+            if not dry_run:
+                show.downloaded_episodes.add(ep)
+                if not show.nyaa_fingerprint:
+                    show.nyaa_fingerprint = entry["title"]
             downloaded.append(f"{show.title} {ep}" + (" (queued)" if paused else ""))
             if verbose or dry_run:
                 prefix = "[DRY RUN] Would " if dry_run else "  "
@@ -503,7 +504,8 @@ def check(dry_run: bool, verbose: bool) -> None:
                 click.echo(f"  Failed to queue torrent for ep {entry['episode']}")
 
         if (
-            show.total_episodes
+            not dry_run
+            and show.total_episodes
             and len(show.downloaded_episodes) >= show.total_episodes
             and show.airing_status == "FINISHED"
         ):
@@ -511,7 +513,8 @@ def check(dry_run: bool, verbose: bool) -> None:
             if verbose:
                 click.echo(f"  Archived {show.title} (all episodes downloaded)")
 
-    save_state(shows)
+    if not dry_run:
+        save_state(shows)
 
     if qbt:
         qbt.close()

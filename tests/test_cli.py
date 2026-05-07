@@ -496,6 +496,49 @@ poll_interval_minutes = 60
         assert "Frieren - 01" in dl_lines[0]
         assert len(queue_lines) == 2
 
+    def test_check_dry_run_does_not_mutate_state(self, tmp_path):
+        """Regression: --dry-run must not write to state or mark episodes downloaded."""
+        config_path = tmp_path / "config.toml"
+        config_path.write_text(DEFAULT_CONFIG)
+
+        show = Show(
+            anilist_id=1,
+            title="Frieren",
+            search_query="Frieren 1080p",
+            downloaded_episodes=set(),
+        )
+        shows = {"frieren": show}
+
+        entry = {
+            "title": "[SubsPlease] Frieren - 03 (1080p) [HASH].mkv",
+            "info_hash": "abc123",
+            "magnet": "magnet:?test",
+            "size_bytes": 500_000_000,
+            "seeders": 100,
+            "group": "SubsPlease",
+            "episode": 3,
+            "quality": "1080p",
+            "is_batch": False,
+            "version": 1,
+        }
+
+        runner = CliRunner()
+        with (
+            patch("autoanime.cli.load_config", return_value=__import__("autoanime.config", fromlist=["load_config"]).load_config(config_path)),
+            patch("autoanime.cli.load_state", return_value=shows),
+            patch("autoanime.cli.save_state") as mock_save,
+            patch("autoanime.cli.fetch_rss", return_value=[entry]),
+        ):
+            result = runner.invoke(main, ["check", "--dry-run"])
+
+        assert result.exit_code == 0, result.output
+        assert "[DRY RUN] Would download" in result.output
+        # State must not have been written
+        mock_save.assert_not_called()
+        # The show object must not have been mutated
+        assert show.downloaded_episodes == set()
+        assert show.nyaa_fingerprint is None
+
     def test_check_honors_group_override(self, tmp_path):
         """Show with group_override='Sokudo' must only download Sokudo releases."""
         config_path = tmp_path / "config.toml"

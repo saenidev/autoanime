@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
-
 import click
 
 from autoanime.anilist import get_air_day, search_anime
@@ -400,7 +398,6 @@ def check(dry_run: bool, verbose: bool) -> None:
             sys.exit(1)
 
     downloaded: list[str] = []
-    now = datetime.now(timezone.utc)
 
     for slug, show in shows.items():
         if show.archived:

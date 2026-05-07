@@ -35,7 +35,7 @@ Creates `~/.config/autoanime/config.toml` with sensible defaults.
 autoanime schedule install
 ```
 
-Installs a `launchd` plist that runs `autoanime check` on the interval set by `poll_interval_minutes` in config.toml (default 60 min).
+Installs a `launchd` plist that runs `autoanime check` on the interval set by `poll_interval_minutes` in config.toml (default 15 min).
 
 ## Usage
 
@@ -43,10 +43,11 @@ Installs a `launchd` plist that runs `autoanime check` on the interval set by `p
 # Search AniList (read-only)
 autoanime search "Frieren"
 
-# Add a show to the watchlist
+# Add a show to the watchlist (interactive: confirms AniList match, then
+# shows a release-group picker sorted by total seeders)
 autoanime add "Frieren"
 autoanime add "One Piece" --from 1120         # skip eps 1-1119
-autoanime add "Dandadan" --group Erai-raws    # override release group
+autoanime add "Dandadan" --group Erai-raws    # skip the picker, force this group
 autoanime add "Show" --quality 720p           # override default quality
 autoanime add "Show" --dir ~/Anime/Show       # custom save path
 
@@ -58,7 +59,7 @@ autoanime status
 
 # Download new episodes
 autoanime check              # live: sends magnets to qBittorrent
-autoanime check --dry-run    # preview without downloading
+autoanime check --dry-run    # preview without touching state or qBittorrent
 autoanime check --verbose    # show matching decisions
 
 # Remove a show
@@ -68,6 +69,23 @@ autoanime remove "Frieren"
 autoanime schedule install
 autoanime schedule uninstall
 ```
+
+## Picking a release group
+
+When `add` is invoked without `--group`, it queries Nyaa for the show (unfiltered, regardless of `nyaa.filter`), groups the results by release group, and prompts you to pick one:
+
+```
+Available release groups:
+  1. Sokudo      5 eps, 312 seeders, latest E05, ~1400MB, 1080p, AV1, dual-audio
+  2. ToonsHub    5 eps, 178 seeders, latest E05, ~2100MB, 1080p, HEVC, dual-audio  [preferred]
+  3. DKB         5 eps,  94 seeders, latest E05, ~800MB,  1080p, HEVC, dual-audio
+
+Pick a group (1-3) [1]:
+```
+
+Sorted by total seeders descending. Tiebreakers: episode count → latest episode → `[preferred]` (groups in your `defaults.group_priority`). The chosen group is saved as `group_override` on the show; subsequent `check` runs only download from that group, and bypass the trusted-uploader filter for that show (so non-trusted groups like Sokudo or DKB still work).
+
+If Nyaa has zero hits at add time (show hasn't aired yet), the picker is skipped and `group_override` stays unset; `check` will fall back to ranking via `defaults.group_priority` once releases appear.
 
 ## How batch downloads behave
 
@@ -97,19 +115,20 @@ max_concurrent_per_show = 0    # 0 = unlimited concurrent; set N for strict seri
 [nyaa]
 mirrors = ["nyaa.si", "nyaa.land"]
 category = "1_2"             # Anime - English-translated
-filter = 2                    # Trusted uploaders only
-poll_interval_minutes = 60
+filter = 2                    # Trusted uploaders only (per-show group_override bypasses this)
+poll_interval_minutes = 15
 ```
 
 After editing `poll_interval_minutes`, re-run `autoanime schedule install` to apply.
 
 ## How it works
 
-1. `autoanime add` resolves titles via AniList (no auth required).
-2. `autoanime check` polls the configured Nyaa mirrors via RSS, filtered by group priority + quality + trusted-uploader filter.
+1. `autoanime add` resolves titles via AniList (no auth), then queries Nyaa for the show, summarises hits per release group, and prompts for one. The chosen group is saved as `group_override` on the show.
+2. `autoanime check` polls the configured Nyaa mirrors via RSS. For shows with `group_override` set, the trusted-uploader filter is bypassed and ranking is locked to that group; otherwise `defaults.group_priority` and `nyaa.filter` apply.
 3. Title parsing extracts episode number, group, quality, batch flag, and version; ranking picks the best release per episode.
-4. Magnets are sent to qBittorrent through its Web API, tagged for per-show state tracking.
-5. Finished shows auto-archive once all episodes are downloaded.
+4. Magnets are sent to qBittorrent through its Web API, tagged `autoanime` and `autoanime-<slug>` for per-show state tracking.
+5. `--dry-run` is a true preview — no state mutations, no qBittorrent calls.
+6. Finished shows auto-archive once all episodes are downloaded.
 
 ## Storage
 

@@ -62,9 +62,12 @@ class QBittorrentClient:
             data["tags"] = tags
         try:
             resp = self.client.post("/api/v2/torrents/add", data=data)
-            return resp.status_code == 200
         except httpx.HTTPError:
             return False
+        # qBittorrent's /torrents/add returns 200 with body "Ok." on success or
+        # "Fails." on failure (e.g. duplicate magnet, parse error). A status-only
+        # check silently treats failures as success.
+        return resp.status_code == 200 and resp.text.strip() == "Ok."
 
     def set_top_priority(self, hashes: list[str]) -> bool:
         """Move torrents to the top of the qBittorrent queue in the given order.
